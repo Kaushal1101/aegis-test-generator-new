@@ -52,6 +52,48 @@ class PredictedImpact(BaseModel):
     files: list[PredictedPath] = Field(default_factory=list)
 
 
+class SandboxStatePackage(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    name: str
+    version: str | None = None
+
+
+class SandboxStateFile(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    path: str
+    content: str = ""
+    mode: str | None = None
+    owner: str | None = None
+
+
+class SandboxStateService(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    name: str
+    state: str | None = None
+    enabled: bool | None = None
+
+
+class SandboxStateUser(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    name: str
+    uid: int | None = None
+
+
+class SandboxStateSection(BaseModel):
+    """Pre-existing machine state to initialize in the sandbox before the pre-phase runs.
+
+    Use ``profile`` to select a named Docker image preset (see IMAGE_PROFILES in
+    sandbox/config.py). Packages, files, services, and users are applied via an
+    auto-generated Ansible setup playbook.
+    """
+    model_config = ConfigDict(extra="allow")
+    profile: str | None = None
+    packages: list[SandboxStatePackage] = Field(default_factory=list)
+    files: list[SandboxStateFile] = Field(default_factory=list)
+    services: list[SandboxStateService] = Field(default_factory=list)
+    users: list[SandboxStateUser] = Field(default_factory=list)
+
+
 class InputDocument(BaseModel):
     model_config = ConfigDict(extra="allow")
     schema_version: str
@@ -61,6 +103,7 @@ class InputDocument(BaseModel):
     sensitivity_verdict: SensitivityVerdict
     predicted_impact: PredictedImpact
     apply: dict[str, Any] = Field(default_factory=dict)
+    sandbox_state: SandboxStateSection = Field(default_factory=SandboxStateSection)
 
 
 class DerivedSummary(BaseModel):

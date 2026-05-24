@@ -100,10 +100,38 @@ class PatchApplyRequest:
     skip: bool = False
 
 
+@dataclass
+class SetupApplyRequest:
+    """Input payload for sandbox pre-state setup (run before the pre-phase)."""
+
+    repo_root: Path
+    container_name: str
+    sandbox_state: dict[str, Any]
+    skip: bool = False
+
+
+@dataclass
+class SetupApplyResult:
+    """Output of the sandbox setup stage."""
+
+    skipped: bool
+    skip_reason: str | None = None
+    error: str | None = None
+    returncode: int | None = None
+    stdout: str = ""
+    stderr: str = ""
+    log_path: str = ""
+    source: str = ""
+    setup_applied: bool = False
+
+
 class SandboxComponent(Protocol):
-    """Component contract for sandbox lifecycle and patch application."""
+    """Component contract for sandbox lifecycle, pre-state setup, and patch application."""
 
     def create(self, request: SandboxCreateRequest) -> SandboxResult:
+        ...
+
+    def apply_setup(self, request: SetupApplyRequest) -> SetupApplyResult:
         ...
 
     def apply_patch(self, request: PatchApplyRequest) -> PatchApplyResult:
@@ -224,6 +252,7 @@ class PipelineSnapshot:
     execution_phase: Literal["pre_patch", "post_patch"] = "pre_patch"
     parsed_input: ParsedInputResult | None = None
     sandbox: SandboxResult | None = None
+    setup_apply: SetupApplyResult | None = None
     patch_apply: PatchApplyResult | None = None
     diff: DiffResult | None = None
     patch_verified: bool = False

@@ -12,9 +12,12 @@ from runtime_skeleton.interfaces import (
     SandboxComponent,
     SandboxCreateRequest,
     SandboxResult,
+    SetupApplyRequest,
+    SetupApplyResult,
 )
 from runtime_skeleton.sandbox.config import load_sandbox_config
 from runtime_skeleton.sandbox.playbook import resolve_playbook_yaml
+from runtime_skeleton.sandbox.state import resolve_state_yaml
 
 _SAFE_NAME = re.compile(r"[^a-zA-Z0-9_.-]+")
 
@@ -63,6 +66,20 @@ class DefaultSandboxComponent(SandboxComponent):
                     skip_reason="docker_run_failed",
                     error=(cp.stderr or cp.stdout).strip(),
                 )
+            # Run bootstrap commands (e.g. install Python on images that lack it)
+            for raw_cmd in cfg.get("bootstrap_commands") or []:
+                bc = subprocess.run(
+                    ["docker", "exec", container_name, "sh", "-c", raw_cmd],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if bc.returncode != 0:
+                    return SandboxResult(
+                        skipped=True,
+                        skip_reason="bootstrap_failed",
+                        error=(bc.stderr or bc.stdout).strip(),
+                    )
             return SandboxResult(
                 skipped=False,
                 container_name=container_name,
@@ -153,6 +170,74 @@ class DefaultSandboxComponent(SandboxComponent):
         )
 
 
+    def apply_setup(self, request: SetupApplyRequest) -> SetupApplyResult:
+        if request.skip:
+            return SetupApplyResult(skipped=True, skip_reason="skip_requested")
+        if not request.container_name:
+            return SetupApplyResult(skipped=True, skip_reason="missing_container")
+        if shutil.which("ansible-playbook") is None:
+            return SetupApplyResult(skipped=True, skip_reason="ansible_not_found")
+
+        try:
+            setup_yaml, source = resolve_state_yaml(
+                sandbox_state=request.sandbox_state,
+                repo_root=request.repo_root,
+            )
+        except ValueError:
+            # Empty sandbox_state with no disk file — nothing to set up, not an error
+            return SetupApplyResult(skipped=True, skip_reason="no_state")
+        except OSError as exc:
+            return SetupApplyResult(
+                skipped=True, skip_reason="state_resolve_failed", error=str(exc)
+            )
+
+        out_dir = request.repo_root / "artifacts" / "setup"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        inventory_path = out_dir / "inventory.ini"
+        playbook_path = out_dir / "playbook.yml"
+        log_path = out_dir / "ansible.log"
+
+        try:
+            s_cfg = load_sandbox_config(request.repo_root)
+        except (OSError, ValueError) as exc:
+            return SetupApplyResult(skipped=True, skip_reason="config_error", error=str(exc))
+        interp = str(s_cfg.get("ansible_python_interpreter") or "/usr/local/bin/python")
+
+        inventory_path.write_text(
+            "[sandbox]\n"
+            f"{request.container_name} ansible_connection=docker ansible_user=root "
+            f"ansible_python_interpreter={interp}\n",
+            encoding="utf-8",
+        )
+        playbook_path.write_text(setup_yaml, encoding="utf-8")
+
+        cmd = ["ansible-playbook", "-i", str(inventory_path), str(playbook_path), "-v"]
+        env = os.environ.copy()
+        env["ANSIBLE_HOST_KEY_CHECKING"] = "False"
+        try:
+            cp = subprocess.run(cmd, capture_output=True, text=True, timeout=900, env=env)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return SetupApplyResult(
+                skipped=False,
+                error=f"ansible_exec_error: {exc}",
+                source=source,
+                log_path=str(log_path),
+                setup_applied=False,
+            )
+
+        log_path.write_text((cp.stdout or "") + "\n\n" + (cp.stderr or ""), encoding="utf-8")
+        return SetupApplyResult(
+            skipped=False,
+            error=None if cp.returncode == 0 else "ansible_run_failed",
+            returncode=cp.returncode,
+            stdout=cp.stdout or "",
+            stderr=cp.stderr or "",
+            log_path=str(log_path),
+            source=source,
+            setup_applied=cp.returncode == 0,
+        )
+
+
 def create_sandbox_request(*, repo_root: Any, run_id: str, skip: bool = False) -> SandboxResult:
     component = DefaultSandboxComponent()
     return component.create(
@@ -177,6 +262,24 @@ def apply_patch_request(
             repo_root=repo_root,
             container_name=container_name,
             patch_section=patch_section,
+            skip=skip,
+        )
+    )
+
+
+def apply_setup_request(
+    *,
+    repo_root: Any,
+    container_name: str,
+    sandbox_state: dict[str, Any],
+    skip: bool = False,
+) -> SetupApplyResult:
+    component = DefaultSandboxComponent()
+    return component.apply_setup(
+        SetupApplyRequest(
+            repo_root=repo_root,
+            container_name=container_name,
+            sandbox_state=sandbox_state,
             skip=skip,
         )
     )

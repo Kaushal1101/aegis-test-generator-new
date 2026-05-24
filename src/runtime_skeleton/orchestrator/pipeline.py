@@ -14,7 +14,7 @@ from runtime_skeleton.interfaces import (
     TestSuiteRequest,
     TestSuiteRunner,
 )
-from runtime_skeleton.sandbox import apply_patch, create_sandbox
+from runtime_skeleton.sandbox import apply_patch, apply_setup, create_sandbox
 
 _DEFAULT_TESTSUITE = DefaultTestSuiteComponent()
 CheckMode = Literal["external", "partial", "in_process"]
@@ -97,6 +97,7 @@ def run_pipeline(
     pre_checks: list[dict[str, Any]] | None = None,
     post_checks: list[dict[str, Any]] | None = None,
     skip_sandbox: bool = False,
+    skip_setup: bool = False,
     skip_patch_apply: bool = False,
     testsuite_collector: Callable[[str, SandboxResult | None], list[dict[str, Any]]] | None = None,
     runner: TestSuiteRunner | None = None,
@@ -165,6 +166,15 @@ def run_pipeline(
 
     sandbox = create_sandbox(repo_root=repo_root, run_id=run_id, skip=skip_sandbox)
     snap.sandbox = sandbox
+
+    sandbox_state_section = parsed_doc.get("sandbox_state") or {}
+    setup_result = apply_setup(
+        repo_root=repo_root,
+        container_name=sandbox.container_name,
+        sandbox_state=sandbox_state_section,
+        skip=skip_setup or sandbox.skipped,
+    )
+    snap.setup_apply = setup_result
 
     pre_source = pre_checks if mode in {"external", "partial"} else None
     pre_n, pre_messages = _normalize_phase(

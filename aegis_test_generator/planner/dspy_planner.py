@@ -43,13 +43,21 @@ class TestPlanDSPy(BaseModel):
 
 _ROLE_RULES = """\
 Role assignment rules:
-- Installs a package → verify, test_type=package_installed
+- Installs a new package → verify, test_type=package_installed
 - Removes a package → verify, test_type=package_absent
-- Creates a file or directory → verify, test_type=file_exists or directory_exists
+- Updates a package to a specific version → verify, test_type=package_version
+- Creates a new file or directory → verify, test_type=file_exists or directory_exists
 - Deletes a file → verify, test_type=file_absent
-- Writes content to a file → verify, test_type=content_contains
+- Modifies an existing file's content → TWO tests:
+    verify, test_type=content_contains  (the new value that must now be present)
+    guard,  test_type=content_not_contains  (the old value that must no longer appear)
+- Changes a file's permissions → verify, test_type=file_mode
+- Changes a file's owner → verify, test_type=file_owner
 - Starts or enables a service → verify, test_type=service_running
-- Anything unchanged by the patch (bystander) → guard
+- Reconfigures a service (changes its config file) → TWO tests:
+    verify, test_type=service_running  (service is still up after the config change)
+    guard,  test_type=content_contains  (an unrelated config section that must be preserved)
+- Anything unchanged by the patch (bystander resource) → guard
 - When no input_context is available, default all roles to guard
 """
 
@@ -70,6 +78,9 @@ _GENERATE_DOC = (
     "  file_owner → expected is the owner username e.g. 'root'\n"
     "  command_output_contains → expected is the substring expected in stdout\n"
     "  package_version → expected is the exact version string\n\n"
+    "For update/maintenance patches (modifying existing files or config): generate PAIRED tests —\n"
+    "one verify test asserting the new value is present, and one guard test asserting the\n"
+    "old value is gone. This is more valuable than a single test for detecting partial updates.\n\n"
 ) + _ROLE_RULES
 
 _REVIEW_DOC = (
@@ -77,7 +88,9 @@ _REVIEW_DOC = (
     "Fix any role mis-assignments, add missing verify checks for stated patch goals, "
     "and add guard checks for things the patch should not touch.\n"
     "Ensure every content_contains, content_not_contains, file_mode, file_owner, "
-    "command_output_contains, and package_version test includes a non-null 'expected' field.\n\n"
+    "command_output_contains, and package_version test includes a non-null 'expected' field.\n"
+    "For any file-modification task, check that paired verify+guard tests exist: "
+    "a content_contains for the new value AND a content_not_contains for the old value.\n\n"
 ) + _ROLE_RULES
 
 
