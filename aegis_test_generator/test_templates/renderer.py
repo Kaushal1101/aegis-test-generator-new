@@ -58,6 +58,13 @@ def _func_body(tc: TestCase) -> str:
         case "content_not_contains":
             needle = _require_expected(tc, "substring")
             return f"    assert {needle} not in host.file({p}).content_string\n"
+        case "content_changed":
+            old_val = _require_expected(tc, "old content substring that must no longer appear")
+            return (
+                f"    f = host.file({p})\n"
+                f"    assert f.exists\n"
+                f"    assert {old_val} not in f.content_string\n"
+            )
         case "file_mode":
             if tc.expected is None:
                 raise RendererError(
@@ -74,6 +81,31 @@ def _func_body(tc: TestCase) -> str:
                 ) from exc
             octal_lit = f"0o{oct(mode_int)[2:]}"
             return f"    assert host.file({p}).mode == {octal_lit}\n"
+        case "file_mode_changed":
+            if tc.expected is None:
+                raise RendererError(
+                    "test_type 'file_mode_changed' requires 'expected' (new mode after patch)"
+                )
+            if tc.expected_before is None:
+                raise RendererError(
+                    "test_type 'file_mode_changed' requires 'expected_before' (old mode before patch)"
+                )
+            def _parse_mode(raw: object, label: str) -> str:
+                s = str(raw).strip().lower().replace("0o", "").lstrip("0") or "0"
+                try:
+                    int(s, 8)
+                except ValueError as exc:
+                    raise RendererError(
+                        f"file_mode_changed {label} must be an octal mode string, got {raw!r}"
+                    ) from exc
+                return f"0o{oct(int(s, 8))[2:]}"
+            old_oct = _parse_mode(tc.expected_before, "expected_before")
+            new_oct = _parse_mode(tc.expected, "expected")
+            return (
+                f"    f = host.file({p})\n"
+                f"    assert f.mode != {old_oct}\n"
+                f"    assert f.mode == {new_oct}\n"
+            )
         case "file_owner":
             owner = _require_expected(tc, "owner user")
             return f"    assert host.file({p}).user == str({owner})\n"
@@ -104,6 +136,14 @@ def _func_body(tc: TestCase) -> str:
         case "package_version":
             ver = _require_expected(tc, "expected version string")
             return f"    pkg = host.package({p})\n    assert pkg.is_installed\n    assert pkg.version == {ver}\n"
+        case "package_version_range":
+            constraint = _require_expected(tc, "PEP-440 version specifier e.g. '>=2.0,<3.0'")
+            return (
+                f"    from packaging.specifiers import SpecifierSet\n"
+                f"    pkg = host.package({p})\n"
+                f"    assert pkg.is_installed\n"
+                f"    assert pkg.version in SpecifierSet({constraint})\n"
+            )
         case unknown:
             raise RendererError(f"unknown test_type: {unknown!r}")
 

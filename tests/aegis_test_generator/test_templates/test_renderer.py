@@ -20,9 +20,15 @@ def _row(test_type: str) -> dict:
         base["expected"] = "needle"
     elif test_type == "content_not_contains":
         base["expected"] = "forbidden"
+    elif test_type == "content_changed":
+        base["expected"] = "old_value"
     elif test_type == "file_mode":
         base["target"] = "/etc/issue"
         base["expected"] = "644"
+    elif test_type == "file_mode_changed":
+        base["target"] = "/etc/issue"
+        base["expected"] = "0600"
+        base["expected_before"] = "0644"
     elif test_type == "file_owner":
         base["expected"] = "root"
     elif test_type == "port_listening":
@@ -35,6 +41,9 @@ def _row(test_type: str) -> dict:
     elif test_type == "package_version":
         base["target"] = "curl"
         base["expected"] = "7.68.0"
+    elif test_type == "package_version_range":
+        base["target"] = "curl"
+        base["expected"] = ">=7.0,<8.0"
     return base
 
 

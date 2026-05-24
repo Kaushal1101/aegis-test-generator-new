@@ -73,7 +73,9 @@ SUPPORTED_TEST_TYPES: tuple[str, ...] = (
     "package_absent",
     "content_contains",
     "content_not_contains",
+    "content_changed",
     "file_mode",
+    "file_mode_changed",
     "file_owner",
     "binary_executable",
     "command_succeeds",
@@ -85,6 +87,7 @@ SUPPORTED_TEST_TYPES: tuple[str, ...] = (
     "symlink_exists",
     "command_output_contains",
     "package_version",
+    "package_version_range",
 )
 
 _TRUNCATION_MARKER = "\n# ... TRUNCATED ..."
@@ -183,8 +186,19 @@ def plan_from_playbook(
         api_key=os.environ.get("OPENAI_API_KEY"),
     )
 
+    from aegis_test_generator.planner.intent import classify_patch_intent
+
     ctx = input_context if isinstance(input_context, dict) else None
-    context_summary = _dspy_context_summary(ctx) if ctx else ""
+    diff_modified: list[str] = []
+    if ctx:
+        diff = ctx.get("diff") or {}
+        if isinstance(diff, dict):
+            diff_modified = _paths_from_diff_entries(diff.get("modified", []))
+    intent = classify_patch_intent(playbook_text, diff_modified=diff_modified)
+    if ctx:
+        context_summary = _dspy_context_summary(ctx, patch_intent=intent)
+    else:
+        context_summary = f"PATCH INTENT: {intent.value.upper()}"
     supported_types = ", ".join(SUPPORTED_TEST_TYPES)
     module = _get_module()
 
@@ -226,10 +240,18 @@ def plan_from_playbook(
 _TYPES_REQUIRING_EXPECTED: frozenset[str] = frozenset({
     "content_contains",
     "content_not_contains",
+    "content_changed",
     "file_mode",
+    "file_mode_changed",
     "file_owner",
     "command_output_contains",
     "package_version",
+    "package_version_range",
+})
+
+# These types additionally require expected_before (the pre-patch value)
+_TYPES_REQUIRING_EXPECTED_BEFORE: frozenset[str] = frozenset({
+    "file_mode_changed",
 })
 
 
@@ -252,6 +274,9 @@ def _dspy_dump_to_plan_row(dumped: dict[str, Any]) -> dict[str, Any]:
             expected = args.get("expected")
     if expected is not None:
         row["expected"] = expected
+    expected_before = dumped.get("expected_before")
+    if expected_before is not None:
+        row["expected_before"] = expected_before
     return row
 
 
@@ -376,9 +401,45 @@ def _format_pipeline_diff_summary(input_context: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _dspy_context_summary(ctx: dict[str, Any]) -> str:
+def _format_priority_targets(
+    diff_modified: list[str],
+    scored_files: list[tuple[str, float]],
+) -> str:
+    """Explicit priority section for high-sensitivity modified files.
+
+    Guides the LLM to generate targeted paired (verify + guard) tests for each
+    modified file rather than generic ones.
+    """
+    if not diff_modified:
+        return ""
+    score_map = {p: s for p, s in scored_files}
+    ordered = sorted(diff_modified, key=lambda p: score_map.get(p, 0.0), reverse=True)
+    lines = [
+        "PRIORITY UPDATE TEST TARGETS (modified files, ordered by sensitivity score):",
+    ]
+    for path in ordered:
+        score = score_map.get(path, 0.0)
+        risk = " [HIGH RISK]" if score >= 0.5 else ""
+        lines.append(f"    {path}  score={score:.2f}{risk}")
+    lines.append(
+        "\nFor EACH target above: generate a verify test for the expected new "
+        "content/state AND a guard test confirming unrelated sections are preserved."
+    )
+    return "\n".join(lines)
+
+
+def _dspy_context_summary(
+    ctx: dict[str, Any],
+    *,
+    patch_intent: Any | None = None,
+) -> str:
     """Readable ``context_summary`` string for the DSPy module."""
     parts: list[str] = []
+
+    if patch_intent is not None:
+        intent_val = patch_intent.value if hasattr(patch_intent, "value") else str(patch_intent)
+        parts.append(f"PATCH INTENT: {intent_val.upper()}")
+
     desc = ctx.get("description")
     if isinstance(desc, str) and desc.strip():
         parts.append(f"Description: {desc.strip()}")
@@ -392,6 +453,16 @@ def _dspy_context_summary(ctx: dict[str, Any]) -> str:
         legacy = _format_pipeline_diff_summary(ctx).strip()
         if legacy:
             parts.append(legacy)
+
+    # Diff-seeded priority targets section for update patches
+    diff = ctx.get("diff") or {}
+    if isinstance(diff, dict):
+        modified = _paths_from_diff_entries(diff.get("modified", []))
+        sv = ctx.get("sensitivity_verdict")
+        scored = _top_scored_files(sv, limit=_MAX_SENSITIVITY_ROWS)
+        priority_block = _format_priority_targets(modified, scored)
+        if priority_block:
+            parts.append(priority_block)
 
     return "\n\n".join(parts)
 
@@ -455,4 +526,9 @@ def _shape_check_row(row: Any, index: int) -> str | None:
         return f"dropped tests[{index}]: role must be 'guard' or 'verify', got {role!r}"
     if test_type in _TYPES_REQUIRING_EXPECTED and row.get("expected") is None:
         return f"dropped tests[{index}]: test_type={test_type!r} requires a non-null 'expected' value"
+    if test_type in _TYPES_REQUIRING_EXPECTED_BEFORE and row.get("expected_before") is None:
+        return (
+            f"dropped tests[{index}]: test_type={test_type!r} requires a non-null 'expected_before' value "
+            "(the mode before the patch)"
+        )
     return None

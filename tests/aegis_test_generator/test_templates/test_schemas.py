@@ -30,15 +30,23 @@ def test_validate_plan_happy_single_minimal_row() -> None:
 @pytest.mark.parametrize("test_type", SUPPORTED_TEST_TYPES)
 def test_validate_plan_each_test_type_accepted(test_type: str) -> None:
     extras: dict[str, object] = {}
-    if test_type in (
-        "content_contains",
-        "content_not_contains",
-        "file_mode",
-        "file_owner",
-    ):
-        extras["expected"] = (
-            "needle" if test_type.startswith("content_") else "644" if test_type == "file_mode" else "root"
-        )
+    if test_type in ("content_contains", "content_not_contains"):
+        extras["expected"] = "needle"
+    elif test_type == "content_changed":
+        extras["expected"] = "old_value"
+    elif test_type == "file_mode":
+        extras["expected"] = "644"
+    elif test_type == "file_mode_changed":
+        extras["expected"] = "0600"
+        extras["expected_before"] = "0644"
+    elif test_type == "file_owner":
+        extras["expected"] = "root"
+    elif test_type == "command_output_contains":
+        extras["expected"] = "ok"
+    elif test_type == "package_version":
+        extras["expected"] = "1.0.0"
+    elif test_type == "package_version_range":
+        extras["expected"] = ">=1.0,<2.0"
     rows = [{"test_type": test_type, "target": "/x", **extras}]
     plan = validate_plan(rows)
     assert plan.tests[0].test_type == test_type

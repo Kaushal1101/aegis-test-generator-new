@@ -25,6 +25,7 @@ class TestCase(BaseModel):
     test_type: str
     target: str
     expected: str | int | bool | None = None
+    expected_before: str | None = None
     reason: str | None = None
     role: Literal["guard", "verify"] = "guard"
 

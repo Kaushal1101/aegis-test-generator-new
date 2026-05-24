@@ -25,6 +25,7 @@ class TestCaseDSPy(BaseModel):
     test_type: str = ""
     target: str = ""
     expected: Any = None
+    expected_before: Any = None
     args: dict[str, Any] = Field(default_factory=dict)
     role: str = "guard"
     reason: str = ""
@@ -63,9 +64,11 @@ Role assignment rules:
 
 _SUPPORTED = (
     "file_exists, file_absent, directory_exists, package_installed, package_absent, "
-    "content_contains, content_not_contains, file_mode, file_owner, binary_executable, "
+    "content_contains, content_not_contains, content_changed, "
+    "file_mode, file_mode_changed, file_owner, binary_executable, "
     "command_succeeds, service_running, service_enabled, port_listening, "
-    "user_exists, group_exists, symlink_exists, command_output_contains, package_version"
+    "user_exists, group_exists, symlink_exists, command_output_contains, "
+    "package_version, package_version_range"
 )
 
 _GENERATE_DOC = (
@@ -74,10 +77,13 @@ _GENERATE_DOC = (
     'role ("guard" or "verify"), reason (string).\n'
     "For these test_types you MUST also include an 'expected' field (string):\n"
     "  content_contains, content_not_contains → expected is the substring to search for\n"
+    "  content_changed → expected is the OLD content substring that must no longer appear\n"
     "  file_mode → expected is the octal mode string e.g. '0644'\n"
+    "  file_mode_changed → expected is the NEW mode; also set expected_before to the OLD mode\n"
     "  file_owner → expected is the owner username e.g. 'root'\n"
     "  command_output_contains → expected is the substring expected in stdout\n"
-    "  package_version → expected is the exact version string\n\n"
+    "  package_version → expected is the exact version string\n"
+    "  package_version_range → expected is a PEP-440 specifier e.g. '>=2.0,<3.0'\n\n"
     "For update/maintenance patches (modifying existing files or config): generate PAIRED tests —\n"
     "one verify test asserting the new value is present, and one guard test asserting the\n"
     "old value is gone. This is more valuable than a single test for detecting partial updates.\n\n"
@@ -87,8 +93,10 @@ _REVIEW_DOC = (
     "Review and improve a proposed test plan for an Ansible playbook.\n\n"
     "Fix any role mis-assignments, add missing verify checks for stated patch goals, "
     "and add guard checks for things the patch should not touch.\n"
-    "Ensure every content_contains, content_not_contains, file_mode, file_owner, "
-    "command_output_contains, and package_version test includes a non-null 'expected' field.\n"
+    "Ensure every content_contains, content_not_contains, content_changed, file_mode, "
+    "file_mode_changed, file_owner, command_output_contains, package_version, and "
+    "package_version_range test includes a non-null 'expected' field. "
+    "For file_mode_changed also set 'expected_before' to the old mode.\n"
     "For any file-modification task, check that paired verify+guard tests exist: "
     "a content_contains for the new value AND a content_not_contains for the old value.\n\n"
 ) + _ROLE_RULES
