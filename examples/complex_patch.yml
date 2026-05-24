@@ -1,0 +1,27 @@
+- hosts: all
+  become: true
+  tasks:
+    - name: Install git and curl
+      apt:
+        name:
+          - git
+          - curl
+        state: present
+        update_cache: yes
+
+    - name: Create aegis working directory
+      file:
+        path: /opt/aegis
+        state: directory
+        mode: '0755'
+        owner: root
+
+    - name: Write aegis config file
+      copy:
+        dest: /opt/aegis/config.conf
+        content: |
+          [aegis]
+          version=1
+          mode=strict
+        mode: '0644'
+        owner: root

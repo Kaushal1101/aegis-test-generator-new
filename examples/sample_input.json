@@ -1,0 +1,51 @@
+{
+  "schema_version": "1.0",
+  "meta": {
+    "run_id": "skeleton-run-001",
+    "sections_present": [
+      "patch",
+      "diff",
+      "sensitivity_verdict",
+      "predicted_impact",
+      "apply"
+    ]
+  },
+  "patch": {
+    "raw_yaml": "- hosts: all\n  become: true\n  tasks:\n    - name: install nginx\n      apt:\n        name: nginx\n        state: present\n",
+    "plays": []
+  },
+  "diff": {
+    "added": [
+      {
+        "path": "/etc/nginx/nginx.conf"
+      }
+    ],
+    "modified": [
+      {
+        "path": "/etc/systemd/system/nginx.service"
+      }
+    ],
+    "removed": [],
+    "errors": []
+  },
+  "sensitivity_verdict": {
+    "verdict": "unsafe",
+    "scored_files": [
+      {
+        "path": "/etc/nginx/nginx.conf",
+        "score": 0.9
+      }
+    ]
+  },
+  "predicted_impact": {
+    "files": [
+      {
+        "path": "/etc/nginx/nginx.conf"
+      },
+      {
+        "path": "/var/log/nginx/access.log"
+      }
+    ]
+  },
+  "apply": {}
+}

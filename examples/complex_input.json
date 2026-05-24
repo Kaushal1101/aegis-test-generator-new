@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0",
+  "meta": {
+    "run_id": "complex-run-001",
+    "sections_present": ["patch", "diff", "sensitivity_verdict", "predicted_impact", "apply"]
+  },
+  "patch": {
+    "raw_yaml": "- hosts: all\n  become: true\n  tasks:\n    - name: Install git and curl\n      apt:\n        name:\n          - git\n          - curl\n        state: present\n        update_cache: yes\n    - name: Create aegis working directory\n      file:\n        path: /opt/aegis\n        state: directory\n        mode: '0755'\n        owner: root\n    - name: Write aegis config file\n      copy:\n        dest: /opt/aegis/config.conf\n        content: |\n          [aegis]\n          version=1\n          mode=strict\n        mode: '0644'\n        owner: root\n",
+    "plays": []
+  },
+  "diff": {
+    "added": [
+      { "path": "/usr/bin/git" },
+      { "path": "/usr/bin/curl" },
+      { "path": "/opt/aegis" },
+      { "path": "/opt/aegis/config.conf" }
+    ],
+    "modified": [],
+    "removed": [],
+    "errors": []
+  },
+  "sensitivity_verdict": {
+    "verdict": "moderate",
+    "scored_files": [
+      { "path": "/opt/aegis/config.conf", "score": 0.4 },
+      { "path": "/usr/bin/git", "score": 0.2 }
+    ]
+  },
+  "predicted_impact": {
+    "files": [
+      { "path": "/opt/aegis/config.conf" },
+      { "path": "/opt/aegis" },
+      { "path": "/usr/bin/git" },
+      { "path": "/usr/bin/curl" }
+    ]
+  },
+  "apply": {}
+}

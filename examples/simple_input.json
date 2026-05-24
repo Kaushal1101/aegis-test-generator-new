@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "meta": {
+    "run_id": "simple-run-001",
+    "sections_present": ["patch", "diff", "sensitivity_verdict", "predicted_impact", "apply"]
+  },
+  "patch": {
+    "raw_yaml": "- hosts: all\n  become: true\n  tasks:\n    - name: Install curl\n      apt:\n        name: curl\n        state: present\n        update_cache: yes\n",
+    "plays": []
+  },
+  "diff": {
+    "added": [{ "path": "/usr/bin/curl" }],
+    "modified": [],
+    "removed": [],
+    "errors": []
+  },
+  "sensitivity_verdict": {
+    "verdict": "safe",
+    "scored_files": [{ "path": "/usr/bin/curl", "score": 0.1 }]
+  },
+  "predicted_impact": {
+    "files": [{ "path": "/usr/bin/curl" }]
+  },
+  "apply": {}
+}

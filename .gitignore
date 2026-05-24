@@ -1,0 +1,14 @@
+.env
+.python-version
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+
+artifacts/

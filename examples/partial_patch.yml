@@ -1,0 +1,26 @@
+- hosts: all
+  become: true
+  tasks:
+    - name: Install curl (succeeds)
+      apt:
+        name: curl
+        state: present
+        update_cache: yes
+
+    - name: Create a working directory (succeeds)
+      file:
+        path: /opt/myapp
+        state: directory
+        mode: '0755'
+
+    - name: Install a package that does not exist (fails)
+      apt:
+        name: nonexistent-package-aegis-xyz-999
+        state: present
+      ignore_errors: true
+
+    - name: Write a marker file only if previous task succeeded (never runs)
+      copy:
+        dest: /opt/myapp/ready
+        content: "ok"
+      when: false

@@ -1,0 +1,7 @@
+- hosts: all
+  become: true
+  tasks:
+    - name: Install a package that does not exist
+      apt:
+        name: nonexistent-package-aegis-xyz-999
+        state: present

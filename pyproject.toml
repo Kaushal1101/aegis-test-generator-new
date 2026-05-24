@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "runtime-skeleton"
+version = "0.1.0"
+description = "Barebones runtime skeleton extracted from aegis-test-generator"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+testinfra = [
+    "openai>=1.0",
+    "dspy-ai>=2.5",
+    "pytest-testinfra>=10.0",
+    "pytest-json-report>=1.5",
+]
+
+[tool.setuptools.packages.find]
+where = ["src", "."]
+include = ["runtime_skeleton*", "aegis_test_generator*"]
