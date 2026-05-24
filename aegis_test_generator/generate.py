@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from aegis_test_generator.planner.llm_planner import plan_from_playbook
+from aegis_test_generator.regression import guard_coverage_sufficiency
 from aegis_test_generator.test_templates.renderer import render_plan
 from aegis_test_generator.test_templates.schemas import TestPlan, validate_plan
 
@@ -37,4 +38,18 @@ def generate_tests(
     )
     plan = validate_plan(result.tests)
     path = render_plan(plan, output_path=output_path)
-    return GenerateResult(path=path, plan=plan, warnings=result.warnings)
+
+    warnings = list(result.warnings)
+    if input_context:
+        diff = input_context.get("diff") or {}
+        sv = input_context.get("sensitivity_verdict") or {}
+        pi = input_context.get("predicted_impact") or {}
+        sufficiency_warnings = guard_coverage_sufficiency(
+            plan.tests,
+            diff_modified=diff.get("modified") or [],
+            sensitivity_scored_files=sv.get("scored_files") or [],
+            predicted_impact_files=pi.get("files") or [],
+        )
+        warnings.extend(sufficiency_warnings)
+
+    return GenerateResult(path=path, plan=plan, warnings=warnings)

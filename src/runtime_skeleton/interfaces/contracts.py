@@ -152,6 +152,8 @@ class DiffResult:
     verified_count: int = 0
     verification_failed_count: int = 0
     transitions: list[dict[str, Any]] = field(default_factory=list)
+    regression_severity_score: float = 0.0
+    regression_severity: str = "none"
 
 
 @dataclass
@@ -176,6 +178,8 @@ class EvaluationResult:
     verified_count: int = 0
     verification_failed_count: int = 0
     transitions: list[dict[str, Any]] = field(default_factory=list)
+    regression_severity_score: float = 0.0
+    regression_severity: str = "none"
 
 
 class EvaluationComponent(Protocol):

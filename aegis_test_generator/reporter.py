@@ -19,10 +19,14 @@ import yaml
 
 from aegis_test_generator.coverage import (
     ALL_CATEGORIES,
-    CoverageSummary,
     compute_coverage,
 )
 from aegis_test_generator.planner.intent import classify_patch_intent
+from aegis_test_generator.regression import (
+    compute_verdict,
+    score_regressions,
+    verdict_description,
+)
 
 if TYPE_CHECKING:
     from aegis_test_generator.runner.testinfra_runner import TestinfraRunner
@@ -73,14 +77,13 @@ def _pre_post_status(t: dict[str, Any]) -> tuple[str, str]:
     return pre, post
 
 
-def _verdict_line(patch_verified: bool, regression_detected: bool) -> str:
-    if patch_verified and not regression_detected:
-        return "**PASS** — patch achieved its goals and introduced no regressions."
-    if not patch_verified and not regression_detected:
-        return "**FAIL** — patch did not achieve one or more of its stated goals."
-    if regression_detected and patch_verified:
-        return "**PARTIAL** — patch goals verified but regressions were introduced."
-    return "**FAIL** — patch goals not met and regressions were introduced."
+def _annotation_badge(annotation_type: str) -> str:
+    badges = {
+        "ENV_ARTIFACT": " *(env)*",
+        "FLAKY": " *(flaky)*",
+        "OUT_OF_SCOPE": " *(out of scope)*",
+    }
+    return badges.get(annotation_type, "")
 
 
 def write_run_report(
@@ -114,13 +117,22 @@ def write_run_report(
         for i, tc in enumerate(test_plan.tests):
             plan_lookup[i] = tc
 
-    # Enrich each transition with its TestCase
+    # Build annotation lookup from classified_transitions (check_id → annotation dict)
+    annotation_lookup: dict[str, dict[str, Any]] = {}
+    classified = snap.classified_transitions or []
+    for ct in classified:
+        cid = str(ct.get("check_id") or "")
+        if cid:
+            annotation_lookup[cid] = ct
+
+    # Enrich each transition with its TestCase and annotation
     enriched: list[dict[str, Any]] = []
     for t in transitions:
         check_id = t.get("check_id", "")
         idx = _idx_from_check_id(check_id)
         tc = plan_lookup.get(idx) if idx is not None else None
         pre_status, post_status = _pre_post_status(t)
+        ann = annotation_lookup.get(check_id, {})
         enriched.append({
             "check_id": check_id,
             "role": t.get("role", "guard"),
@@ -130,6 +142,9 @@ def write_run_report(
             "test_type": tc.test_type if tc else "",
             "target": tc.target if tc else "",
             "reason": tc.reason or "" if tc else "",
+            "applicable": ann.get("applicable"),
+            "annotation_type": str(ann.get("annotation_type") or ""),
+            "classification_reason": str(ann.get("classification_reason") or ""),
         })
 
     verify_rows = [e for e in enriched if e["role"] == "verify"]
@@ -141,6 +156,41 @@ def write_run_report(
     verified_count = diff.verified_count if diff else 0
     vfailed_count = diff.verification_failed_count if diff else 0
     regressed_count = diff.regressed_count if diff else 0
+
+    # Compute applicable regression count and severity
+    sv = (parsed.get("sensitivity_verdict") or {})
+    scored_files = sv.get("scored_files") or []
+    applicable_regressed_count: int
+    severity_score: float
+    severity_label: str
+    if classified:
+        severity_score, severity_label = score_regressions(
+            classified, scored_files, plan_lookup
+        )
+        applicable_regressed_count = sum(
+            1 for ct in classified
+            if ct.get("applicable") is True
+            and str(ct.get("status") or "") in {"regressed", "new_fail"}
+        )
+    else:
+        severity_score, severity_label = 0.0, "none"
+        applicable_regressed_count = regressed_count
+
+    # Compute coverage gaps for the verdict
+    all_tests = [plan_lookup[i] for i in sorted(plan_lookup)]
+    try:
+        patch_intent = classify_patch_intent(raw_yaml)
+    except Exception:
+        patch_intent = None
+    cov_summary: CoverageSummary = compute_coverage(all_tests, patch_intent=patch_intent)
+    coverage_gap_warnings = [f"No `{cat}` coverage" for cat in cov_summary.gaps]
+
+    verdict = compute_verdict(
+        patch_verified,
+        severity_label,  # type: ignore[arg-type]
+        applicable_regressed_count,
+        coverage_gap_warnings,
+    )
 
     sb = snap.sandbox
     pa = snap.patch_apply
@@ -159,6 +209,14 @@ def write_run_report(
 
     # ── Header ───────────────────────────────────────────────────────────────
     title = run_name or "Pipeline Run"
+    applicable_note = (
+        f" ({applicable_regressed_count} applicable)" if classified else ""
+    )
+    severity_line = (
+        f"**Regression severity:** {severity_label} ({severity_score:.2f})"
+        if severity_label != "none"
+        else ""
+    )
     lines += [
         f"# {title}",
         f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M')}",
@@ -166,15 +224,17 @@ def write_run_report(
         f"**Sandbox:** {sandbox_line}  ",
         f"**Patch apply:** {patch_line}",
         "",
-        f"## Verdict",
+        "## Verdict",
         "",
-        _verdict_line(patch_verified, regression_detected),
+        f"**{verdict}** — {verdict_description(verdict)}",
         "",
-        f"| Verified | Verification failed | Regressed |",
-        f"|---|---|---|",
-        f"| {verified_count} | {vfailed_count} | {regressed_count} |",
+        "| Verified | Verification failed | Regressed |",
+        "|---|---|---|",
+        f"| {verified_count} | {vfailed_count} | {regressed_count}{applicable_note} |",
         "",
     ]
+    if severity_line:
+        lines += [severity_line, ""]
 
     # ── What the patch does ───────────────────────────────────────────────────
     lines += ["## What the patch does", ""]
@@ -239,37 +299,32 @@ def write_run_report(
         ]
         for e in guard_rows:
             sym = _STATUS_SYMBOL.get(e["status"], e["status"])
+            badge = _annotation_badge(e["annotation_type"]) if e["annotation_type"] else ""
             reason = e["reason"] or "—"
             lines.append(
                 f"| `{e['test_type']}` | `{e['target']}` "
-                f"| {reason} | {e['pre']} | {e['post']} | {sym} |"
+                f"| {reason} | {e['pre']} | {e['post']} | {sym}{badge} |"
             )
     else:
         lines.append("*(No guard-role tests were generated for this run.)*")
     lines.append("")
 
     # ── Coverage summary ──────────────────────────────────────────────────────
-    all_tests = [plan_lookup[i] for i in sorted(plan_lookup)] if plan_lookup else []
     if all_tests:
-        try:
-            patch_intent = classify_patch_intent(raw_yaml)
-        except Exception:
-            patch_intent = None
-        cov: CoverageSummary = compute_coverage(all_tests, patch_intent=patch_intent)
         lines += ["## Coverage Summary", ""]
         lines += [
             "| Category | Verify tests | Guard tests | Total |",
             "|---|---|---|---|",
         ]
         for cat in ALL_CATEGORIES:
-            s = cov.stats.get(cat)
+            s = cov_summary.stats.get(cat)
             v = s.verify if s else 0
             g = s.guard if s else 0
             total = v + g
-            flag = " ⚠️" if cat in cov.gaps else ""
+            flag = " ⚠️" if cat in cov_summary.gaps else ""
             lines.append(f"| `{cat}` | {v} | {g} | {total}{flag} |")
         lines.append("")
-        if cov.gaps:
+        if cov_summary.gaps:
             lines.append(
                 "⚠️ Categories marked above have no coverage. "
                 "They may be blind spots given this patch's intent."

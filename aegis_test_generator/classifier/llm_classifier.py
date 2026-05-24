@@ -41,9 +41,17 @@ def _build_messages(
         "a guard-role transition with status 'regressed' is an unexpected side effect — "
         "set applicable=true if it is a genuine regression, applicable=false if it is a "
         "known harmless side effect. "
+        "For annotation_type use one of: "
+        "APPLICABLE (genuine regression, counts against score), "
+        "ENV_ARTIFACT (Docker or sandbox environment limitation, not a real regression), "
+        "FLAKY (known unstable or environment-dependent test), "
+        "OUT_OF_SCOPE (unrelated to this patch's risk surface). "
+        "When applicable=true always use APPLICABLE. "
+        "When applicable=false choose the most fitting of ENV_ARTIFACT, FLAKY, OUT_OF_SCOPE. "
         "Return JSON only in shape: "
-        '{"annotations":[{"check_id":"...","applicable":true|false,"reason":"..."}]} '
-        "Do not include fields besides check_id, applicable, reason."
+        '{"annotations":[{"check_id":"...","applicable":true|false,'
+        '"annotation_type":"APPLICABLE|ENV_ARTIFACT|FLAKY|OUT_OF_SCOPE","reason":"..."}]} '
+        "Do not include fields besides check_id, applicable, annotation_type, reason."
     )
     payload = {
         "input_context": parsed_input,
@@ -94,10 +102,14 @@ def _parse_annotations(raw: str) -> tuple[list[dict[str, Any]], list[str]]:
         if not isinstance(applicable, bool):
             warnings.append(f"dropped annotations[{idx}]: applicable must be bool")
             continue
+        annotation_type = str(row.get("annotation_type") or "")
+        if not annotation_type:
+            annotation_type = "APPLICABLE" if applicable else "OUT_OF_SCOPE"
         out.append(
             {
                 "check_id": cid.strip(),
                 "applicable": applicable,
+                "annotation_type": annotation_type,
                 "reason": str(reason or ""),
             }
         )

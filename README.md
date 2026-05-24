@@ -163,7 +163,7 @@ See [`docs/improvement-plan-phases.md`](docs/improvement-plan-phases.md) for the
 | 1 — Pre-State Sandbox Infrastructure | ✅ Complete |
 | 2 — Update-Focused Test Generation | ✅ Complete |
 | 3 — Coverage Taxonomy and Documentation | ✅ Complete |
-| 4 — Complete the Regression Component | 🔲 Upcoming |
+| 4 — Complete the Regression Component | ✅ Complete |
 
 ## Development log
 

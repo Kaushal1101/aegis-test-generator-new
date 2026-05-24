@@ -1,5 +1,43 @@
 # Project Log
 
+## 2026-05-24 — Phase 4: Complete the Regression Component
+
+### Completed work
+
+- Created `aegis_test_generator/regression.py`:
+  - `TransitionAnnotation` enum: APPLICABLE, ENV_ARTIFACT, FLAKY, OUT_OF_SCOPE
+  - `_bucket_severity(score)`: maps 0–1 float to none/low/medium/high/critical using upper-bound tiers
+  - `score_regressions(transitions, scored_files, plan_lookup)`: computes weighted severity score from applicable regressions; uses sensitivity_score per target if available, flat 0.3 otherwise; caps at 1.0
+  - `guard_coverage_sufficiency(tests, diff_modified, scored_files, predicted_impact)`: warns when high-sensitivity (>0.5) modified files have no guard test coverage on themselves or their predicted impact surface
+  - `compute_verdict(patch_verified, severity, applicable_regressed_count, coverage_gaps)`: six-tier verdict (PASS, PASS_WITH_WARNINGS, PARTIAL_LOW, PARTIAL_HIGH, FAIL_VERIFY, FAIL_BOTH)
+  - `verdict_description(verdict)`: plain-English verdict descriptions
+
+- Modified `src/runtime_skeleton/interfaces/contracts.py`:
+  - Added `regression_severity_score: float = 0.0` and `regression_severity: str = "none"` to both `EvaluationResult` and `DiffResult`
+
+- Modified `aegis_test_generator/classifier/llm_classifier.py`:
+  - Extended system prompt to request `annotation_type` field (APPLICABLE/ENV_ARTIFACT/FLAKY/OUT_OF_SCOPE) in addition to existing `applicable: bool`
+  - `_parse_annotations` now extracts `annotation_type`, defaulting to `APPLICABLE` when applicable=True and `OUT_OF_SCOPE` when applicable=False
+
+- Modified `aegis_test_generator/generate.py`:
+  - Calls `guard_coverage_sufficiency(plan.tests, ...)` after rendering and appends any coverage warnings to `GenerateResult.warnings`
+
+- Modified `aegis_test_generator/reporter.py`:
+  - Builds annotation lookup from `snap.classified_transitions` and enriches each transition with `applicable`, `annotation_type`, `classification_reason`
+  - Computes applicable regression count (from classified transitions) and severity score using `score_regressions`
+  - Uses `compute_verdict` for the expanded six-tier verdict instead of the old binary PASS/FAIL/PARTIAL
+  - Shows regression severity score and label in the report when non-zero
+  - Shows annotation badge (*(env)*, *(flaky)*, *(out of scope)*) on guard test result cells
+  - Reuses the already-computed `cov_summary` in the Coverage Summary section
+
+### Tests added
+- `tests/aegis_test_generator/test_regression.py`: 30 tests covering bucketing, severity scoring, guard coverage sufficiency, verdict computation, and TransitionAnnotation enum
+
+### Validation
+- `python -m pytest tests/` → **332 passed**
+
+---
+
 ## 2026-05-24 — Phase 3: Coverage Taxonomy and Documentation
 
 ### Completed work
