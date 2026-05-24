@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from aegis_test_generator.planner.llm_planner import SUPPORTED_TEST_TYPES
+from aegis_test_generator.coverage import TEST_TYPE_TO_CATEGORY
 
 
 class SchemaValidationError(ValueError):
@@ -28,6 +29,13 @@ class TestCase(BaseModel):
     expected_before: str | None = None
     reason: str | None = None
     role: Literal["guard", "verify"] = "guard"
+    coverage_category: str | None = None
+
+    @model_validator(mode="after")
+    def assign_coverage_category(self) -> "TestCase":
+        if self.coverage_category is None:
+            self.coverage_category = TEST_TYPE_TO_CATEGORY.get(self.test_type)
+        return self
 
     @field_validator("test_type")
     @classmethod

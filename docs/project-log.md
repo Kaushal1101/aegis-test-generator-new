@@ -1,5 +1,39 @@
 # Project Log
 
+## 2026-05-24 — Phase 3: Coverage Taxonomy and Documentation
+
+### Completed work
+
+- Created `aegis_test_generator/coverage.py`:
+  - `CoverageCategory` literal type (7 values: `package_integrity`, `file_integrity`, `file_content`, `service_state`, `network_posture`, `identity`, `command_behavior`)
+  - `TEST_TYPE_TO_CATEGORY` mapping all 22 supported test types to their category
+  - `INTENT_REQUIRED_CATEGORIES` table: for each `PatchIntent`, the categories that must have at least one test (used to flag ⚠️ blind spots)
+  - `CategoryStats`, `CoverageSummary` dataclasses
+  - `compute_coverage(tests, *, patch_intent)` — counts verify/guard per category and populates `gaps` list
+
+- Modified `aegis_test_generator/test_templates/schemas.py`:
+  - Added `coverage_category: str | None = None` field to `TestCase`
+  - Added `model_validator(mode="after")` to auto-assign `coverage_category` from `TEST_TYPE_TO_CATEGORY` when not explicitly set by the LLM
+
+- Modified `aegis_test_generator/reporter.py`:
+  - Added coverage summary table section after "Regression guard tests" block
+  - Re-classifies patch intent from raw YAML at report time to determine which categories are required
+  - Flags ⚠️ on categories with zero coverage when they are required by the patch intent
+  - Added `_infer_goal` entries for the three Phase 2 types (`content_changed`, `file_mode_changed`, `package_version_range`)
+
+- Created `docs/coverage-reference.md`:
+  - Full test type reference (all 22, grouped by category) with descriptions and typical use cases
+  - Coverage category matrix showing which patch scenarios each category addresses
+  - Strengths and known gaps documentation
+
+### Tests added
+- `tests/aegis_test_generator/test_coverage.py`: 24 tests covering mapping completeness, auto-assignment, and `compute_coverage` gap detection
+
+### Validation
+- `python -m pytest tests/` → **302 passed**
+
+---
+
 ## 2026-04-22
 
 Implemented the Evaluation component extraction for `runtime_skeleton` based on the session brief.

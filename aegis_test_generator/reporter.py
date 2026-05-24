@@ -17,6 +17,13 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from aegis_test_generator.coverage import (
+    ALL_CATEGORIES,
+    CoverageSummary,
+    compute_coverage,
+)
+from aegis_test_generator.planner.intent import classify_patch_intent
+
 if TYPE_CHECKING:
     from aegis_test_generator.runner.testinfra_runner import TestinfraRunner
     from runtime_skeleton.interfaces import PipelineSnapshot
@@ -241,6 +248,34 @@ def write_run_report(
         lines.append("*(No guard-role tests were generated for this run.)*")
     lines.append("")
 
+    # ── Coverage summary ──────────────────────────────────────────────────────
+    all_tests = [plan_lookup[i] for i in sorted(plan_lookup)] if plan_lookup else []
+    if all_tests:
+        try:
+            patch_intent = classify_patch_intent(raw_yaml)
+        except Exception:
+            patch_intent = None
+        cov: CoverageSummary = compute_coverage(all_tests, patch_intent=patch_intent)
+        lines += ["## Coverage Summary", ""]
+        lines += [
+            "| Category | Verify tests | Guard tests | Total |",
+            "|---|---|---|---|",
+        ]
+        for cat in ALL_CATEGORIES:
+            s = cov.stats.get(cat)
+            v = s.verify if s else 0
+            g = s.guard if s else 0
+            total = v + g
+            flag = " ⚠️" if cat in cov.gaps else ""
+            lines.append(f"| `{cat}` | {v} | {g} | {total}{flag} |")
+        lines.append("")
+        if cov.gaps:
+            lines.append(
+                "⚠️ Categories marked above have no coverage. "
+                "They may be blind spots given this patch's intent."
+            )
+            lines.append("")
+
     # ── Pipeline messages ─────────────────────────────────────────────────────
     messages = snap.testsuite_messages or []
     if messages:
@@ -275,5 +310,8 @@ def _infer_goal(test_type: str, target: str) -> str:
         "command_succeeds": f"Ensure `{target}` runs successfully",
         "command_output_contains": f"Ensure `{target}` produces expected output",
         "binary_executable": f"Install the executable `{target}`",
+        "content_changed": f"Modify the content of `{target}`",
+        "file_mode_changed": f"Change permissions on `{target}`",
+        "package_version_range": f"Upgrade `{target}` to a target version range",
     }
     return m.get(test_type, f"`{test_type}` on `{target}`")
