@@ -621,3 +621,69 @@ Planner Phase 5: DSPy replaces the raw OpenAI chat loop in `plan_from_playbook`;
 - Ran: `PYTHONPATH=src pytest -q tests/`
 - Result: `180 passed`
 
+## 2026-05-24
+
+### Improvement Plan (new phases) — context
+
+Identified three gaps in the existing system and drafted a four-phase improvement plan (`docs/improvement-plan-phases.md`):
+1. Sandboxes simulate clean installs only — no pre-existing state for update/maintenance patches.
+2. Test generation skews toward install assertions; no coverage taxonomy or documentation.
+3. Regression detection is binary (pass/fail only) — no severity weighting, exception classification, or coverage sufficiency checks.
+
+Repo initialised and pushed to `https://github.com/Kaushal1101/aegis-test-generator-new.git` at this point.
+
+---
+
+### Phase 1: Pre-State Sandbox Infrastructure ✅
+
+Goal: make sandboxes simulate real enterprise machines so update patches are tested against a realistic "before" state.
+
+#### Completed work
+
+- **`src/runtime_skeleton/sandbox/state.py`** (new) — `sandbox_state_to_playbook_yaml()` converts a `sandbox_state` dict (packages, files, services, users) into an Ansible setup playbook. `resolve_state_yaml()` mirrors `resolve_playbook_yaml`: disk file (`inputs/sandbox_state.yml`) takes precedence over the parsed section.
+- **`src/runtime_skeleton/sandbox/setup.py`** (new) — thin `apply_setup()` wrapper, mirrors `sandbox/patch.py`.
+- **`src/runtime_skeleton/sandbox/config.py`** — added `IMAGE_PROFILES` dict with four named presets (`minimal`, `debian-full`, `ubuntu-lts`, `rhel-compat`). Non-Python images carry `bootstrap_commands` (run via `docker exec` before Ansible) to install Python. `load_sandbox_config()` now resolves `profile` before merging explicit keys.
+- **`src/runtime_skeleton/input/models.py`** — added `SandboxStatePackage`, `SandboxStateFile`, `SandboxStateService`, `SandboxStateUser`, `SandboxStateSection` models; `InputDocument` gains optional `sandbox_state: SandboxStateSection` field.
+- **`src/runtime_skeleton/interfaces/contracts.py`** — added `SetupApplyRequest`, `SetupApplyResult` dataclasses; `SandboxComponent` protocol extended with `apply_setup()`; `PipelineSnapshot` gains `setup_apply: SetupApplyResult | None`.
+- **`src/runtime_skeleton/interfaces/__init__.py`** — exported `SetupApplyRequest`, `SetupApplyResult`.
+- **`src/runtime_skeleton/components/sandbox/core.py`** — added `apply_setup()` method to `DefaultSandboxComponent` (same pattern as `apply_patch`: resolve YAML → write inventory → run ansible-playbook; empty state with no disk file skips gracefully as `no_state`); added `apply_setup_request()` function; `create()` now runs `bootstrap_commands` via `docker exec` after container start if the config supplies them.
+- **`src/runtime_skeleton/components/sandbox/__init__.py`** — exported `apply_setup_request`.
+- **`src/runtime_skeleton/sandbox/__init__.py`** — exported `apply_setup`, `IMAGE_PROFILES`, `resolve_state_yaml`, `sandbox_state_to_playbook_yaml`.
+- **`src/runtime_skeleton/orchestrator/pipeline.py`** — pipeline now runs `CREATE SANDBOX → APPLY SETUP STATE → PRE-PHASE → APPLY PATCH → POST-PHASE → EVALUATE`; `run_pipeline` gains `skip_setup: bool = False` parameter; setup result stored in `snap.setup_apply`.
+- **`aegis_test_generator/planner/dspy_planner.py`** — `_ROLE_RULES` updated to generate paired tests for file-modification tasks: `content_contains` verify (new value) + `content_not_contains` guard (old value gone); same pattern for service reconfiguration.
+- **`tests/runtime_skeleton/sandbox/test_state.py`** (new) — 17 tests for playbook generation and YAML resolution.
+- **`tests/runtime_skeleton/components/test_sandbox_setup.py`** (new) — 8 tests for `apply_setup` (skip paths, success/failure/exec-error mapping, disk file precedence).
+- **`tests/runtime_skeleton/sandbox/test_config_profiles.py`** (new) — 6 tests for profile resolution, override behaviour, unknown profile error.
+
+#### Validation
+
+- Ran: `pytest -q tests/runtime_skeleton/`
+- Result: **`108 passed`** (77 pre-existing + 31 new)
+
+---
+
+### Phase 2: Update-Focused Test Generation ✅
+
+Goal: shift test generation to produce higher-quality tests for edit/update patches and seed the LLM with diff-specific context.
+
+#### Completed work
+
+- **`aegis_test_generator/planner/intent.py`** (new) — `PatchIntent` enum (`install`, `update`, `remove`, `configure`, `mixed`). `classify_patch_intent(playbook_yaml, diff_modified=...)` walks every task in every play: `lineinfile`/`replace`/`blockinfile` → UPDATE; `apt state=latest` → UPDATE; `copy`/`template` to a `diff.modified` path → UPDATE; `apt state=present` → INSTALL; `apt state=absent` → REMOVE; `file state=absent` → REMOVE; multiple conflicting signals → MIXED; `update + configure` collapses to UPDATE.
+- **`aegis_test_generator/planner/llm_planner.py`** — `SUPPORTED_TEST_TYPES` extended to 22 types; `_TYPES_REQUIRING_EXPECTED` updated; `_TYPES_REQUIRING_EXPECTED_BEFORE` added for `file_mode_changed`; `_shape_check_row` validates `expected_before`; `_dspy_dump_to_plan_row` passes through `expected_before`; `_format_priority_targets()` added — lists modified files ordered by sensitivity score and flags ≥0.5 as HIGH RISK; `_dspy_context_summary()` now accepts `patch_intent` keyword and appends the priority targets block when `diff.modified` is non-empty; `plan_from_playbook()` classifies intent and passes it into the context summary.
+- **`aegis_test_generator/planner/dspy_planner.py`** — `_SUPPORTED` updated with three new types; `TestCaseDSPy` gains `expected_before: Any = None`; `_GENERATE_DOC` and `_REVIEW_DOC` document new types and the paired-test requirement.
+- **`aegis_test_generator/test_templates/schemas.py`** — `TestCase` gains `expected_before: str | None = None`.
+- **`aegis_test_generator/test_templates/renderer.py`** — three new match cases:
+  - `content_changed`: asserts old value substring is absent from the file (`f.exists` + `old_val not in f.content_string`).
+  - `file_mode_changed`: parses both `expected_before` and `expected` as octal; renders `f.mode != old_oct` + `f.mode == new_oct`.
+  - `package_version_range`: imports `packaging.specifiers.SpecifierSet` inline; checks `pkg.is_installed` and `pkg.version in SpecifierSet(constraint)`.
+- **`tests/aegis_test_generator/test_templates/test_schemas.py`** — parametrize fixtures updated for new types.
+- **`tests/aegis_test_generator/test_templates/test_renderer.py`** — `_row()` updated for new types.
+- **`tests/aegis_test_generator/planner/test_intent.py`** (new) — 18 tests covering all intent signals, mixed cases, edge cases (invalid YAML, empty playbook, service-only → MIXED).
+- **`tests/aegis_test_generator/planner/test_context_summary.py`** (new) — 6 tests for intent injection and priority target generation.
+- **`tests/aegis_test_generator/test_templates/test_new_types.py`** (new) — 21 tests covering schema validation and renderer output for all three new test types.
+
+#### Validation
+
+- Ran: `pytest -q tests/`
+- Result: **`278 passed`** (180 pre-existing + 98 new)
+

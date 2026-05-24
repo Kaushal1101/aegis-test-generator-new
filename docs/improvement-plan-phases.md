@@ -1,5 +1,16 @@
 # Aegis Test Generator — Phased Improvement Plan
 
+## Status
+
+| Phase | Title | Status |
+|---|---|---|
+| 1 | Pre-State Sandbox Infrastructure | ✅ Complete — 2026-05-24 |
+| 2 | Update-Focused Test Generation | ✅ Complete — 2026-05-24 |
+| 3 | Coverage Taxonomy and Documentation | 🔲 Not started |
+| 4 | Complete the Regression Component | 🔲 Not started |
+
+---
+
 ## Context Summary
 
 The system currently:
