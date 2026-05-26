@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.0",
+  "meta": {
+    "run_id": "partial-run-001",
+    "sections_present": ["patch", "diff", "sensitivity_verdict", "predicted_impact", "apply"]
+  },
+  "patch": {
+    "raw_yaml": "- hosts: all\n  become: true\n  tasks:\n    - name: Install curl (succeeds)\n      apt:\n        name: curl\n        state: present\n        update_cache: yes\n\n    - name: Create a working directory (succeeds)\n      file:\n        path: /opt/myapp\n        state: directory\n        mode: '0755'\n\n    - name: Install a package that does not exist (fails)\n      apt:\n        name: nonexistent-package-aegis-xyz-999\n        state: present\n      ignore_errors: true\n\n    - name: Write a marker file only if previous task succeeded (never runs)\n      copy:\n        dest: /opt/myapp/ready\n        content: \"ok\"\n      when: false\n",
+    "plays": []
+  },
+  "diff": {
+    "added": [
+      { "path": "/usr/bin/curl" },
+      { "path": "/opt/myapp" }
+    ],
+    "modified": [],
+    "removed": [],
+    "errors": []
+  },
+  "sensitivity_verdict": {
+    "verdict": "safe",
+    "scored_files": [
+      { "path": "/usr/bin/curl", "score": 0.1 },
+      { "path": "/opt/myapp", "score": 0.2 }
+    ]
+  },
+  "predicted_impact": {
+    "files": [
+      { "path": "/usr/bin/curl" },
+      { "path": "/opt/myapp" }
+    ]
+  },
+  "apply": {}
+}
